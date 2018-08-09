@@ -147,19 +147,61 @@ func TestExpire(t *testing.T) {
 	assert.NotEmpty(t, resource.GetBoundIP("5432/tcp"))
 
 	err = pool.Retry(func() error {
-		db, err := sql.Open("postgres", fmt.Sprintf("postgres://postgres:secret@localhost:%s/postgres?sslmode=disable", resource.GetPort("5432/tcp")))
+		port := resource.GetPort("5432/tcp")
+		dsn := fmt.Sprintf("postgres://postgres:secret@localhost:%s/postgres?sslmode=disable", port)
+		db, err := sql.Open("postgres", dsn)
 		if err != nil {
 			return err
 		}
 		err = db.Ping()
 		if err != nil {
-			return nil
+			return err
 		}
+		db.Close()
 		err = resource.Expire(1)
 		require.Nil(t, err)
-		time.Sleep(5 * time.Second)
+		time.Sleep(10 * time.Second)
+		db, err = sql.Open("postgres", dsn)
+		require.Nil(t, err)
 		err = db.Ping()
 		require.NotNil(t, err)
+		return nil
+	})
+	require.Nil(t, err)
+
+	require.Nil(t, pool.Purge(resource))
+}
+
+func TestExpireCancelation(t *testing.T) {
+	resource, err := pool.Run("postgres", "9.5", nil)
+	require.Nil(t, err)
+	assert.NotEmpty(t, resource.GetPort("5432/tcp"))
+
+	assert.NotEmpty(t, resource.GetBoundIP("5432/tcp"))
+
+	err = pool.Retry(func() error {
+		port := resource.GetPort("5432/tcp")
+		dsn := fmt.Sprintf("postgres://postgres:secret@localhost:%s/postgres?sslmode=disable", port)
+		db, err := sql.Open("postgres", dsn)
+		if err != nil {
+			return err
+		}
+		err = db.Ping()
+		if err != nil {
+			return err
+		}
+		db.Close()
+		err = resource.Expire(5)
+		require.Nil(t, err)
+		time.Sleep(1 * time.Second)
+		err = resource.Expire(0)
+		require.Nil(t, err)
+		time.Sleep(10 * time.Second)
+		db, err = sql.Open("postgres", dsn)
+		require.Nil(t, err)
+		err = db.Ping()
+		require.Nil(t, err)
+
 		return nil
 	})
 	require.Nil(t, err)

@@ -1,6 +1,7 @@
 package dockertest
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -23,8 +24,9 @@ type Pool struct {
 
 // Resource represents a docker container.
 type Resource struct {
-	pool      *Pool
-	Container *dc.Container
+	pool       *Pool
+	Container  *dc.Container
+	cancelFunc context.CancelFunc
 }
 
 // GetPort returns a resource's published port. You can use it to connect to the service via localhost, e.g. tcp://localhost:1231/
@@ -90,10 +92,24 @@ func (r *Resource) Close() error {
 
 // Expire sets a resource's associated container to terminate after a period has passed
 func (r *Resource) Expire(seconds uint) error {
+	if r.cancelFunc != nil {
+		fmt.Println("calling cancel")
+		r.cancelFunc()
+	}
+
+	if seconds <= 0 { // cancel expiration or set expiration to never occur
+		return nil
+	}
+
+	var cxt context.Context
+	cxt, r.cancelFunc = context.WithCancel(context.Background())
+
 	go func() {
-		if err := r.pool.Client.StopContainer(r.Container.ID, seconds); err != nil {
+		if err := r.pool.Client.StopContainerWithContext(r.Container.ID, seconds, cxt); err != nil {
 			// Error handling?
+			fmt.Printf("Error handle %v\n", err)
 		}
+		fmt.Printf("Go routine exit\n")
 	}()
 	return nil
 }
